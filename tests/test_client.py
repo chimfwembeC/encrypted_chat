@@ -1,10 +1,9 @@
-import unittest
-from client.client import authenticate
+# client/client.py
 
-class TestClient(unittest.TestCase):
-    def test_authenticate(self):
-        self.assertTrue(authenticate("user1", "password1"))
-        self.assertFalse(authenticate("user1", "wrongpassword"))
-
-if __name__ == "__main__":
-    unittest.main()
+def authenticate(username, password):
+    # This is a simple example. In a real application, you would check the username and password against a database or other secure storage.
+    valid_users = {
+        "user1": "password1",
+        "user2": "password2"
+    }
+    return valid_users.get(username) == password

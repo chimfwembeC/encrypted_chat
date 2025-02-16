@@ -1,62 +1,72 @@
+# client/client.py
 import socket
 import threading
 from encryption import AESCipher
 from authentication import authenticate
 
-# Replace with your server's IP address
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5555
 
 def receive_messages(client_socket, cipher):
-    """Receives and decrypts messages from the server"""
+    """Receive and decrypt messages from the server."""
     while True:
         try:
             encrypted_message = client_socket.recv(1024)
             if not encrypted_message:
-                break  # Exit if connection is lost
-
-            try:
-                # Extract username and encrypted message
-                username, enc_msg = encrypted_message.split(b": ", 1)
-
-                # Ensure enc_msg is bytes before decrypting
-                if isinstance(enc_msg, str):  
-                    enc_msg = enc_msg.encode()  
-
-                decrypted_message = cipher.decrypt(enc_msg)  # No need for `.decode()` if already a string
-
-                print(f"\n{username.decode()}: {decrypted_message}")
-                print("You: ", end="", flush=True)  # Keep input line clean
-
-            except Exception as e:
-                print(f"\nError decrypting message: {e}")
-
-        except:
+                break  # Connection lost
+            # cipher.decrypt returns a string, so no extra decode needed
+            decrypted_message = cipher.decrypt(encrypted_message)
+            print(f"\n{decrypted_message}")
+            print("You: ", end="", flush=True)
+        except Exception as e:
             print("\nDisconnected from server.")
             client_socket.close()
             break
 
-
-def send_messages(client_socket, cipher):
-    """Sends encrypted messages to the server"""
+def send_messages(client_socket, cipher, username):
+    """Encrypt and send messages to the server."""
     while True:
         try:
             message = input("You: ")
             if message.lower() == 'exit':
                 print("Disconnecting...")
+                client_socket.send(cipher.encrypt("exit"))
                 client_socket.close()
                 break
 
-            encrypted_message = cipher.encrypt(message)
-            client_socket.send(encrypted_message)
+            # Join room command: join room <room_key> <room_name>
+            if message.startswith("join room"):
+                parts = message.split(" ")
+                if len(parts) < 4:
+                    print("Invalid room join command. Usage: join room <room_key> <room_name>")
+                    continue
+                room_key, room_name = parts[2], parts[3]
+                full_message = f"ROOM:{room_key}:{room_name}"
+                client_socket.send(cipher.encrypt(full_message))
 
-        except:
-            print("\nError sending message.")
+            # Private message: private <username> <message>
+            elif message.startswith("private"):
+                parts = message.split(" ", 2)
+                if len(parts) < 3:
+                    print("Invalid private message format. Usage: private <username> <message>")
+                    continue
+                target_username = parts[1]
+                private_message = parts[2]
+                full_message = f"PRIVATE:{target_username}:{private_message}"
+                client_socket.send(cipher.encrypt(full_message))
+
+            # Otherwise, treat as broadcast message
+            else:
+                full_message = f"BROADCAST:{message}"
+                client_socket.send(cipher.encrypt(full_message))
+
+        except Exception as e:
+            print("\nError sending message:", e)
             client_socket.close()
             break
 
 def start_client():
-    """Starts the chat client"""
+    """Start the chat client."""
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((SERVER_IP, SERVER_PORT))
 
@@ -65,24 +75,27 @@ def start_client():
 
     if not authenticate(username, password):
         print("Authentication failed!")
+        client_socket.close()
         return
 
-    key = b'12345678901234567890123456789012'  # AES-256 key should be 32 bytes
+    # AES key must match the server's key (32 bytes for AES-256)
+    key = b'12345678901234567890123456789012'
     cipher = AESCipher(key)
 
     print("-" * 50)
-    print("Authentication successful!")
-    print(f"Hello, {username}!")
+    print(f"Hello, {username}! Welcome to the chat.")
+    print("Type 'exit' to leave the chat.")
     print("-" * 50)
 
+    # Send username (plaintext) to the server
     client_socket.send(username.encode('utf-8'))
 
-    # Start receiving messages in a separate thread
+    # Start a thread to receive messages from the server
     receive_thread = threading.Thread(target=receive_messages, args=(client_socket, cipher), daemon=True)
     receive_thread.start()
 
-    # Start sending messages in the main thread
-    send_messages(client_socket, cipher)
+    # Send messages from the main thread
+    send_messages(client_socket, cipher, username)
 
 if __name__ == "__main__":
     start_client()
